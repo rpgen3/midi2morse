@@ -21,7 +21,7 @@
             'util'
         ].map(v => `https://rpgen3.github.io/mylib/export/${v}.mjs`)
     ].flat());
-    const rpgen4 = await import('https://rpgen3.github.io/piano/mjs/toMIDI.mjs');
+    const rpgen4 = await import('https://rpgen3.github.io/piano/mjs/midi/toMIDI.mjs');
     Promise.all([
         [
             'container',
@@ -57,7 +57,7 @@
             rpgen3.addInputStr(html, {
                 label,
                 value,
-                readonly: true
+                copy: true
             });
         }
         const inputMorse = rpgen3.addInputStr(html, {
@@ -95,8 +95,10 @@
         });
         const inputPitch = rpgen3.addInputStr(html, {
             label: 'モールス信号のピッチ',
+            save: true,
             value: 72
         });
+        $('<dd>').appendTo(html);
         rpgen3.addBtn(html, 'モールス信号出力', () => {
             if(!g_midi) return alert('Error: Must input MIDI file.');
             const n = selectMorseTrack();
@@ -104,11 +106,12 @@
             const pitch = Number(inputPitch());
             if(Number.isNaN(pitch)) return alert('Error: Pitch is number.');
             outputMorse(midi2morse(n, pitch));
+            outputMorse.elm.trigger('change');
         }).addClass('btn');
-        const outputMorse = rpgen3.addInput(html, {
+        const outputMorse = rpgen3.addInputStr(html, {
             label: 'モールス信号',
             textarea: true,
-            readonly: true
+            copy: true
         });
     }
     const morse2midi = inputArray => {
@@ -139,20 +142,25 @@
         const {track, timeDivision} = g_midi; // 4分音符の長さ
         const unitTime = timeDivision / 4;
         let currentTime = 0;
-        let lastTime = 0;
+        let noteOnTime = 0;
+        let noteOffTime = 0;
         for(const {deltaTime, type, data} of track[morseTrack].event) {
             currentTime += deltaTime;
             if(type !== 8 && type !== 9) continue;
             const [pitch, velocity] = data,
                   isNoteOFF = type === 8 || !velocity;
             if(pitch !== morsePitch) continue;
-            const len = currentTime - lastTime;
             if(isNoteOFF) {
+                const len = currentTime - noteOnTime;
                 outputStr += len <= unitTime ? morse.get('トン') : morse.get('ツー');
+                noteOffTime = currentTime;
             }
             else {
-                if(len > unitTime) outputStr += '\n';
-                lastTime = currentTime;
+                const len = currentTime - noteOffTime;
+                if(len < unitTime) ;
+                else if(len < unitTime * 2) outputStr += '　';
+                else outputStr += '\n';
+                noteOnTime = currentTime;
             }
         }
         return outputStr;
