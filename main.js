@@ -21,15 +21,7 @@
             'util'
         ].map(v => `https://rpgen3.github.io/mylib/export/${v}.mjs`)
     ].flat());
-    const rpgen4 = await importAll([
-        'https://rpgen3.github.io/maze/mjs/heap/Heap.mjs',
-        [
-            [
-                'fixTrack',
-                'toMIDI'
-            ].map(v => `midi/${v}`)
-        ].flat().map(v => `https://rpgen3.github.io/piano/mjs/${v}.mjs`)
-    ].flat());
+    const rpgen4 = await import('https://rpgen3.github.io/piano/mjs/toMIDI.mjs');
     Promise.all([
         [
             'container',
@@ -95,15 +87,23 @@
         });
         MidiParser.parse(inputFile.get(0), v => {
             g_midi = v;
-            selectMorseTrack.update([]);
+            const {track} = v;
+            selectMorseTrack.update([...track.keys()]);
         });
         const selectMorseTrack = rpgen3.addSelect(html, {
             label: 'モールス信号のトラック'
         });
+        const inputPitch = rpgen3.addInputStr(html, {
+            label: 'モールス信号のピッチ',
+            value: 72
+        });
         rpgen3.addBtn(html, 'モールス信号出力', () => {
-            const v = selectMorseTrack();
             if(!g_midi) return alert('Error: Must input MIDI file.');
-            outputMorse(midi2morse());
+            const n = selectMorseTrack();
+            if(!n && n !== 0) return alert('Error: Select morse track.');
+            const pitch = Number(inputPitch());
+            if(Number.isNaN(pitch)) return alert('Error: Pitch is number.');
+            outputMorse(midi2morse(n, pitch));
         }).addClass('btn');
         const outputMorse = rpgen3.addInput(html, {
             label: 'モールス信号',
@@ -134,58 +134,27 @@
         }
         return outputArray;
     };
-    const midi2morse = () => {
-        const {timeDivision} = g_midi; // 4分音符の長さ
-        const bpm = getBPM(g_midi);
-    };
-    const getBPM = midi => {
-        const {track} = midi;
-        let bpm = 0;
-        for(const {event} of track) {
-            for(const v of event) {
-                if(v.type !== 0xFF || v.metaType !== 0x51) continue;
-                bpm = 6E7 / v.data;
-                break;
+    const midi2morse = (morseTrack, morsePitch) => {
+        let outputStr = '';
+        const {track, timeDivision} = g_midi; // 4分音符の長さ
+        const unitTime = timeDivision / 4;
+        let currentTime = 0;
+        let lastTime = 0;
+        for(const {deltaTime, type, data} of track[morseTrack].event) {
+            currentTime += deltaTime;
+            if(type !== 8 && type !== 9) continue;
+            const [pitch, velocity] = data,
+                  isNoteOFF = type === 8 || !velocity;
+            if(pitch !== morsePitch) continue;
+            const len = currentTime - lastTime;
+            if(isNoteOFF) {
+                outputStr += len <= unitTime ? morse.get('トン') : morse.get('ツー');
             }
-            if(bpm) break;
-        }
-        if(bpm) return bpm;
-        else throw 'BPM is none.';
-    };
-    const parseMidi = midi => {
-        const {track} = midi,
-              heap = new rpgen4.Heap();
-        for(const {event} of track) {
-            const now = new Map;
-            let currentTime = 0;
-            for(const {deltaTime, type, data, channel} of event) {
-                currentTime += deltaTime;
-                if(type !== 8 && type !== 9) continue;
-                const [pitch, velocity] = data,
-                      isNoteOFF = type === 8 || !velocity;
-                if(now.has(pitch) && isNoteOFF) {
-                    const unit = now.get(pitch);
-                    unit.end = currentTime;
-                    heap.add(unit.start, unit);
-                    now.delete(pitch);
-                }
-                else if(!isNoteOFF) now.set(pitch, new MidiUnit({
-                    ch: channel,
-                    pitch,
-                    velocity,
-                    start: currentTime
-                }));
+            else {
+                if(len > unitTime) outputStr += '\n';
+                lastTime = currentTime;
             }
         }
-        return heap;
+        return outputStr;
     };
-    class MidiUnit {
-        constructor({ch, pitch, velocity, start}){
-            this.ch = ch;
-            this.pitch = pitch;
-            this.velocity = velocity;
-            this.start = start;
-            this.end = -1;
-        }
-    }
 })();
